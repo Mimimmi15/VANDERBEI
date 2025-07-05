@@ -1,0 +1,188 @@
+---
+title: "Projet du cours - Remise 1"
+subtitle: "MTH8408"
+author:
+  - name: Chris David Fogué, Yasmine Amami
+    email: ouepiya-chris-david.fogue@polymtl.ca , yasmine.amami@polymtl.ca
+    affiliation:
+      - name: Polytechnique Montréal
+format:
+  pdf:
+    keep-tex: false
+    documentclass: article
+    include-in-header:
+      - text: |
+            \usepackage{xspace}
+            \usepackage[francais]{babel}
+    geometry:
+      - margin=1in
+    papersize: letter
+    colorlinks: true
+    urlcolor: blue
+engine: julia
+
+---
+
+
+
+
+# Introduction - Description du projet  
+
+## Réchauffement local  
+
+L'étude du réchauffement local vise à analyser les variations de température à l'échelle d'une région spécifique en utilisant des données météorologiques historiques. L'article de Vanderbei (2012) propose une approche basée sur la régression par moindres écarts absolus (LAD) pour modéliser trois composantes clés :
+\begin{itemize}
+\item Une \textbf{tendance linéaire} (réchauffement sur 55 ans)
+\item Une \textbf{variation saisonnière} (cycle annuel)
+\item Un \textbf{cycle solaire} (période de 10.7 ans)
+\end{itemize} 
+L'objectif est de : 
+\begin{itemize}
+\item Reproduire les résultats de Vanderbei en utilisant des solveurs d'optimisation
+\item Comparer les performances des normes L1, L2, et Linf
+\item Étendre l'analyse à d'autres stations météo via des scripts automatisés
+\end{itemize}
+
+## Problématique  :
+
+
+
+Le réchauffement climatique est un phénomène complexe souvent étudié à l'échelle globale. Cependant, les variations locales peuvent différer  en raison de facteurs géographiques, urbains ou naturels. 
+Ce projet se concentre sur :  
+- L'extraction de tendances climatiques à partir de données quotidiennes sur 55 ans.  
+- La modélisation des effets saisonniers et du cycle solaire (période de 10.7 ans).  
+- L'évaluation de la robustesse des modèles LAD face aux données abérrantes, comparée à d'autres méthodes comme les moindres carrés apr exemple ou autres.  
+
+
+Il s'agira entre autre de répondre à la question suivante :
+
+Peut-on reproduire et confirmer les tendances locales de réchauffement climatique décrites dans l’article de Vanderbei en utilisant des données climatiques récentes et accessibles, et peut-on enrichir cette analyse à l’aide d’autres modèles pertinents ?
+
+
+1. **Formulation du modèle LAD**:
+
+La température modélisée s'exprime comme :
+ 
+\begin{equation}
+T_d = x_0 + x_1 d + x_2\cos(\omega_a d) + x_3\sin(\omega_a d) + x_4\cos(\omega_s d) + x_5\sin(\omega_s d) + \varepsilon_d
+\end{equation}
+ 
+
+avec
+
+\begin{align*}
+\omega_a &= 2\pi/365.25 \quad \text{(fréquence annuelle)} \\
+\omega_s &= 2\pi/(10.7\times 365.25) \quad \text{(fréquence solaire)}
+\end{align*}
+
+
+Le modèle de base s'exprime comme :
+    
+\begin{equation}
+\min_{x_0,\ldots,x_5} \sum_{d\in D} |\Phi(d)^T x - T_d|
+\end{equation}
+
+
+où
+
+
+\begin{equation}
+\Phi(d) = [1, d, \cos(2\pi d/365.25), \sin(2\pi d/365.25), \cos(2\pi d/(10.7\times 365.25)), \sin(2\pi d/(10.7\times 365.25))]
+\end{equation}
+
+
+Cette formulation est convertie en programme linéaire via l'introduction de variables d'écart $e_d$ :
+
+
+\begin{align*}
+\min_{x,e} &\sum_{d} e_d
+\text{s.c.} &-e_d \leq \Phi(d)^T x - T_d \leq e_d \quad \\ \forall d \in D
+\end{align*}
+
+
+2. **Principaux défis**:
+
+Quelques défis ont pu etre notés et ceux-ci incluent :  
+- La dominance des variations saisonnières masquant les tendances à long terme.  
+- La sensibilité des modèles aux données manquantes ou aberrantes.  
+- L'optimisation non linéaire pour estimer la période exacte du cycle solaire.  
+
+
+## Description des objectifs  :
+
+À ce stades, les objectifs fixés pour le projet sont les suivants :
+
+1. **Reproduction des résultats de Vanderbei** :  
+   - Il s'agira d'implémenter le modèle LAD (norme L1) sous forme de programme linéaire.  
+   - Il faudra aussi valider l'estimation du réchauffement local (~2°F sur 55 ans) et la phase du cycle solaire.  
+
+2. **Comparaison des résultats obtenus entre modèles** :  
+   - Test du modèle L2 (moindres carrés) et du modèle L_inf (minimax).  
+   - Évaluation de leur sensibilité aux données aberrantes et leur précision sur le cycle solaire.  
+
+3. **Extension globale** :  
+   - Automatiser le téléchargement de données pour d'autres stations météo via l'API NOAA.  
+   - Cartographier les tendances de réchauffement à l'échelle mondiale.  
+
+4. **Innovations possibles** :  
+   - Intégrer l'humidité pour calculer des indices de chaleur.  
+   - Adapter le modèle aux tropiques où les variations saisonnières ne sont pas sinusoïdales.  
+
+
+## Plan d'action (suggestion) :
+
+
+### Recueil des données et outils pour la complétion du projet:
+
+- **Source** : Obtenir les données quotidiennes de température et point de rosée de la NOAA (ex. : McGuire AFB).  
+- **Téléchargement** : Des scripts UNIX pour automatiser l'extraction (exemple de `getData.sh` fourni par Vanderbei).  
+- **Solveurs** : Utilisation des algorithmes d'optimisations étudiés en cours pour la résolution par les moindres carrés (Norme L2) et meme pour les programmes linéaires (Norme L_inf) , LAD (Norme L1).
+Remarque : Pour les programmes linéaires, (LAD), certains solveurs comme AMPL peuvent etre utilisés pour la validation des résultats obtenus 
+
+### Étapes suggérées pour le déroulement de la suite du projet:
+
+Pour l'instant, les étapes ci-dessous présentent les actions à prendre pour la suite du projet. Celles-ci pourront etre modifiées plus tard si nécessaire.
+
+1. **Reproduction de la modélisation initiale** :  
+   Il s'agira de:
+   - Implémenter le modèle LAD en AMPL ou tout autre méthode.  
+   - Résoudre avec NEOS ou un solveur local.  
+
+2. **Validation avec d'autres méthodes et analyse comparative** :  
+   - Adapter le modèle en norme L2 (Méthode des Moindres carrées) et un autre en norme Linf (programmation linéaire).  
+   - Comparer les intervalles de confiance via bootstrap.  
+
+3. **Visualisation des données et des résultats** :  
+   
+   - Générer des graphiques similaires à ceux de l'article (tendances reproduisant les résultats obtenus dans l'article de Vanderbei).  
+   - Cartographier les résultats globaux avec des librairies graphiques adaptés  
+
+4. **Extensions de la modélisation ** :  
+   - Intégrer l'humidité pour calculer l'indice humidex pour apporter plus de fidélité aux modèles étudiés.   
+
+
+
+## Impacts attendus  :
+
+Les impacts potentiels auxquels on pourrait s'attendre suite à ce projet pourraient etre les suivants:
+
+
+Sur le plan méthodologique, ce projet pourrait apporter plusieurs avancées significatives. La validation empirique montre que les méthodes robustes, sont une bonne approche pour la détection de signaux faibles comme le cycle solaire (d'amplitude seulement 0.29°F). Les estimateurs LAD présentent une bonne stabilité face aux valeurs extrêmes et fournissent des intervalles de confiance très précis en comparaison aux autres approches classiques. La comparaison avec les autres modèles qui seront produits permettra de mettre en évidences les aspects qualitatifs et défaillants de chaque méthode ainsi que leur fiabilité.
+
+D'un point de vue algorithmique, le projet propose des innovations notables dans la gestion des problèmes de grande échelle (manipulation de grandes bases de données). L'utilisation optimisée de solveurs (comme CPLEX et Gurobi), combinée à des techniques avancées d'optimisation, permet de traiter efficacement les données massives. 
+
+Le cadre développé dans cette étude permet d'intégrer simultanément plusieurs composantes climatiques : tendances à long terme, variations saisonnières, cycles externes et indicateurs dérivés (cas de l'humidité). Cette approche ouvre de nouvelles perspectives pour l'analyse climatique intégrée.
+
+Les méthodes développées fournissent des outils précieux pour l'aide à la décision environnementale. Elles produisent des indicateurs pour le suivi des politiques climatiques, tout en offrant une base scientifique solide pour l'élaboration de scénarios locaux. Ces approches pourraient permettre également une validation des modèles climatiques globaux.
+
+
+
+# Lien Github
+
+https://github.com/Mimimmi15/VANDERBEI
+
+
+
+## Références  
+Vanderbei, R. J. (2012). *Local Warming*. SIAM Review, 54(3), 597–606. https://doi.org/10.1137/110827296  
+

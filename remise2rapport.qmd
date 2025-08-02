@@ -1,0 +1,641 @@
+---
+title: "Projet du cours - Remise 2"
+subtitle: "MTH8408"
+author:
+  - name: Chris David Fogué, Yasmine Amami
+    email: ouepiya-chris-david.fogue@polymtl.ca , yasmine.amami@polymtl.ca
+    affiliation:
+      - name: Polytechnique Montréal
+format:
+  pdf:
+    graphics:
+      default-device: cairo-pdf
+      dev: pdf
+    fig-format: pdf
+    keep-tex: false
+    documentclass: article
+    include-in-header:
+      - text: |
+            \usepackage{xspace}
+            \usepackage[francais]{babel}
+    geometry:
+      - margin=1in
+    papersize: letter
+    colorlinks: true
+    urlcolor: blue
+engine: julia
+---
+
+
+# Introduction 
+
+Ce rapport présente la deuxième phase de notre projet d'analyse des tendances climatiques locales, une étude approfondie visant à modéliser et comparer les variations de température à l'échelle régionale. Dans la continuité de notre première remise, cette phase se concentre sur la validation rigoureuse des modèles, l'extension des analyses à de nouvelles données, et l'intégration de facteurs climatiques supplémentaires pour enrichir notre compréhension du réchauffement local.
+
+## Contexte et objectifs initiaux
+Notre travail s'appuie sur l'approche proposée par Vanderbei (2012), qui utilise une régression par moindres écarts absolus (LAD - norme L1) pour décomposer les variations de température en trois composantes clés :
+
+- Une tendance linéaire reflétant le réchauffement sur 55 ans,
+- Une variation saisonnière (cycle annuel),
+- Un cycle solaire (période de 10.7 ans).
+
+L'objectif initial était de reproduire ces résultats avec des données actualisées, de comparer les performances des normes L1, L2 (moindres carrés) et Linf (minimax), et d'automatiser l'extraction de données pour d'autres stations météorologiques via l'API NOAA.
+
+## Avancements et objectifs de la Phase 2
+
+Dans cette seconde phase, nous approfondissons notre analyse en nous focalisant sur les axes suivants :
+
+- Reprise, analyse et validation des modèles :
+  * Implémentation et résolution des modèles LAD (L1), moindres carrés (L2) et minimax (Linf) à l'aide de solveurs d'optimisation.
+  * Validation des résultats par comparaison avec ceux de Vanderbei.
+
+- Comparaison des performances :
+  * Évaluation de la robustesse des modèles face aux données aberrantes, en mettant en évidence les avantages et limites de chaque approche (L1, L2, Linf).
+  * Utilisation de techniques de bootstrap pour estimer les intervalles de confiance et affiner la précision des prédictions.
+
+- Extension des données et traitement des imperfections :
+  * Automatisation de l'extraction du pipeline de données provenant de différentes stations météorologiques pour une analyse géographique élargie (via l'API NOAA).
+  * Mise en place d'une méthodologie explicite pour gérer les données manquantes ou aberrantes, garantissant la fiabilité des résultats.
+
+- Proposition d'amélioration : intégration de l'humidité :
+  * Introduction du facteur humidité pour calculer l'indice humidex, un indicateur climatique plus complet que la température seule.
+  * Adaptation des modèles pour tenir compte de ce nouveau paramètre, notamment dans les régions tropicales où les variations saisonnières ne sont pas purement sinusoïdales.
+
+
+# A. Reprise, analyse et validation des modèles :
+
+# 1. Méthodologie
+
+## 1.1 Modélisation Mathématique
+
+### Formulation des Trois Modèles
+
+**Modèle LAD (L1)**  
+Minimisation de la somme des écarts absolus :
+
+$$
+\min_{x} \sum_{d=1}^N |\Phi(d)^T x - T_d|
+$$
+
+où $\Phi(d) = [1, d, \cos(\omega_a d), \sin(\omega_a d), \cos(\omega_s d), \sin(\omega_s d)]$ avec $\omega_a = \frac{2\pi}{365.25}$ et $\omega_s = \frac{2\pi}{10.7 \times 365.25}$.
+
+**Modèle L2**  
+Minimisation de la somme des carrés des résidus :
+
+$$
+\min_{x} \sum_{d=1}^N (\Phi(d)^T x - T_d)^2
+$$
+
+**Modèle Linf**  
+Minimisation de l'erreur maximale :
+
+$$
+\min_{x} \max_d |\Phi(d)^T x - T_d|
+$$
+
+## 1.2 Implémentation Technique
+
+### Conversion en Programmes Optimisables
+
+**Formulation pour L1** :
+$$
+\begin{aligned}
+\min_{x,e} & \sum_{d} e_d \\
+\text{s.c.} & \quad -e_d \leq \Phi(d)^T x - T_d \leq e_d \quad \forall d \in D
+\end{aligned}
+$$
+
+**Formulation pour L2** :
+$$
+\min_x \|Xx - T\|_2^2 \quad \text{où } X = [\Phi(1)^T; ...; \Phi(N)^T]
+$$
+
+**Formulation pour Linf** :
+$$
+\begin{aligned}
+\min_{x,t} & \quad t \\
+\text{s.c.} & \quad -t \leq \Phi(d)^T x - T_d \leq t \quad \forall d \in D
+\end{aligned}
+$$
+
+
+# 2. Implémentation des modèles, analyse et validation des résultats :
+
+## 2.1 Modèle LAD (L1) - Programmation Linéaire:
+
+### 2.1.1 Rapel des résultats de Vanderbei sur des intervalles de confiance:
+Les valeurs optimales des paramètres ainsi que leurs intervalles de confiance à 2σ sont :
+
+```{=latex}
+\begin{table}[h]
+\centering
+\begin{tabular}{lc}
+\hline
+Paramètre & Valeur optimale ± Intervalle (2σ) \\ \hline
+$x_0$ & $52,6 \pm 0,27\,^{\circ}\mathrm{F}$ \\
+$x_1$ & $3,63 \pm 0,75\,^{\circ}\mathrm{F/siècle}$ \\
+$x_2$ & $-20,4 \pm 0,16\,^{\circ}\mathrm{F}$ \\
+$x_3$ & $-8,31 \pm 0,17\,^{\circ}\mathrm{F}$ \\
+$x_4$ & $-0,197 \pm 0,137\,^{\circ}\mathrm{F}$ \\
+$x_5$ & $0,211 \pm 0,202\,^{\circ}\mathrm{F}$ \\ \hline
+\end{tabular}
+\caption{Résultats d'optimisation avec intervalles de confiance}
+\label{tab:resultats}
+\end{table}
+``` 
+
+### 2.1.2 Présentation du modèle:
+
+L'exécution du code du fichier "modele_L1.jl" produit les résultats ci-dessous (Voir le code dans la branche "phase 2" du dépot Github) :
+
+```{julia}
+# GLPK (GNU Linear Programming Kit) : 
+# un solveur open source qui permet de résoudre des problèmes de programmation
+#linéaire (PL) et en nombres entiers mixtes (PLNE).
+
+# ======================================================================
+# 1. Librairies requises
+# ======================================================================
+
+using Pkg
+Pkg.add("GLPK")
+Pkg.add("JuMP")
+Pkg.add("CSV")
+Pkg.add("DataFrames")
+Pkg.add("Printf")
+using JuMP, GLPK, CSV, DataFrames, Printf
+
+# =====================================================================
+# 2. Chargement des données
+# =====================================================================
+# Adapter le chemin ci_dessous au chemin local de destination du dossier
+data = CSV.read("C:/Users/fogue/Downloads/VANDERBEI-phase2/VANDERBEI-phase2/temperatures_clean.csv", DataFrame)
+day = data.day
+T = data.avg_temp
+n = length(day)
+
+# =====================================================================
+# 3. Modèle d’optimisation
+# =====================================================================
+model = Model(GLPK.Optimizer)
+
+@variables(model, begin
+    x[1:6]              # Coefficients x0 à x5
+    dev[1:n] >= 0       # Variables pour les valeurs absolues
+end)
+
+@objective(model, Min, sum(dev))
+
+# Contraintes LAD : -dev[i] ≤ prédiction - T[i] ≤ dev[i]
+@constraint(model, [i in 1:n],
+    x[1] + x[2]*day[i] +
+    x[3]*cos(2π*day[i]/365.25) +
+    x[4]*sin(2π*day[i]/365.25) +
+    x[5]*cos(2π*day[i]/(10.7*365.25)) +
+    x[6]*sin(2π*day[i]/(10.7*365.25)) - T[i] <= dev[i])
+
+@constraint(model, [i in 1:n],
+    -(x[1] + x[2]*day[i] +
+    x[3]*cos(2π*day[i]/365.25) +
+    x[4]*sin(2π*day[i]/365.25) +
+    x[5]*cos(2π*day[i]/(10.7*365.25)) +
+    x[6]*sin(2π*day[i]/(10.7*365.25)) - T[i]) <= dev[i])
+
+# ====================================================================
+# 4. Résolution
+# ====================================================================
+optimize!(model)
+coeffs = value.(x)
+
+# ====================================================================
+# 5. Affichage des résultats
+# ====================================================================
+@printf("\nRésultats de la régression LAD (norme L1)\n")
+@printf("------------------------------------------\n")
+@printf("x0 (température moyenne de base)    = %.3f °F\n", coeffs[1])
+@printf("x1 (pente de réchauffement local)   = %.6f °F/jour  → %.2f °F/siècle\n",
+    coeffs[2], coeffs[2]*365.25*100)
+@printf("x2, x3 (effet saisonnier)           = %.3f , %.3f\n", coeffs[3], coeffs[4])
+@printf("x4, x5 (effet cycle solaire)        = %.3f , %.3f\n", coeffs[5], coeffs[6])
+
+amplitude_saison = sqrt(coeffs[3]^2 + coeffs[4]^2)
+amplitude_solaire = sqrt(coeffs[5]^2 + coeffs[6]^2)
+
+@printf("\nAmplitude saisonnière               = %.3f °F\n", amplitude_saison)
+@printf("Amplitude du cycle solaire          = %.3f °F\n", amplitude_solaire)
+
+```
+
+Le script complet et détaillé de l'implémentation du modèle LAD est présentée dans le fichier nommée "modele_L1.jl" disponible sur Github dans la branche "phase 2".
+
+**Points clés** :
+- Conversion du problème non-linéaire en programme linéaire via variables d'écart
+- Solveur GLPK pour des problèmes de taille moyenne
+
+### 2.1.3 Comparaison avec les résultats (LAD) de Vanderbei :
+
+Le modèle LAD (Least Absolute Deviations) développé pour ce projet a produit les estimations suivantes pour les paramètres climatiques :
+- **Température moyenne de base (x0)** : 52.681 °F  
+- **Pente de réchauffement local (x1)** : 2.98 °F/siècle  
+- **Amplitude saisonnière** : 22.028 °F  
+- **Amplitude du cycle solaire** : 0.224 °F
+
+**Tendances clés comparées à Vanderbei (2012) :**
+Les résultats du modèle implémenté ont été comparés à ceux de Vanderbei (2012) :
+
+| Paramètre       | Modèle implémenté| Vanderbei (2012) | Écart relatif |
+|-----------------|------------------|------------------|---------------|
+| Réchauffement   | 2.98 °F/siècle   | 2.8 °F/siècle    | +6.4%         |
+| Amplitude saison | 22.028 °F       | 21.5 °F          | +2.4%         |
+| Cycle solaire   | 0.224 °F         | 0.29 °F          | -22.7%        |
+
+**Analyse des écarts :**
+- La tendance au réchauffement est cohérente avec une légère surestimation (+6.4%), probablement due à l'extension temporelle des données utilisées dans notre modèle.
+- L'amplitude saisonnière est très proche de celle de Vanderbei (±1 °F), confirmant la robustesse du modèle pour capturer les variations annuelles.
+- L'effet du cycle solaire est sous-estimé (-22.7%), ce qui pourrait s'expliquer par des variations non linéaires non prises en compte.
+
+### Robustesse et limites
+- **Avantages** : Le modèle L1 est robuste face aux données aberrantes ou estimées, ce qui en fait un choix adapté pour les jeux de données météorologiques (données massives).
+- **Limites** : La sous-estimation de l'effet solaire suggère que des ajustements ou des méthodes complémentaires (comme le bootstrap) pourraient être nécessaires pour affiner cette composante.
+
+
+
+## 2.2 Modèle L2 - Moindres Carrés
+
+### 2.2.1 Présentation du modèle:
+
+L'exécution du code du fichier "modele_L2.jl" produit les résultats ci-dessous (Voir le code dans la branche "phase 2" du dépot Github) :
+
+```{julia}
+# Solution analytique des moindres carrés
+
+using Pkg
+Pkg.add("Plots")
+Pkg.add("CSV")
+Pkg.add("DataFrames")
+Pkg.add("LinearAlgebra")
+Pkg.add("Statistics")
+Pkg.add("Printf")
+using CSV, DataFrames, LinearAlgebra, Statistics, Printf, Plots
+
+# ==================================================================
+# 1. Chargement des données
+# ==================================================================
+
+# Adapter le chemin ci_dessous au chemin local de destination du dossier
+df = CSV.read("C:/Users/fogue/Downloads/VANDERBEI-phase2/VANDERBEI-phase2/temperatures_clean.csv", DataFrame)
+d = df.day
+T = df.avg_temp
+n = length(d)
+
+# ==================================================================
+# 2. Construction des prédicteurs
+# ==================================================================
+X = hcat(
+    ones(n),                           # x0
+    d,                                 # x1 : linéaire
+    cos.(2π .* d ./ 365.25),          # x2 : saison (cos)
+    sin.(2π .* d ./ 365.25),          # x3 : saison (sin)
+    cos.(2π .* d ./ (10.7*365.25)),   # x4 : cycle solaire (cos)
+    sin.(2π .* d ./ (10.7*365.25))    # x5 : cycle solaire (sin)
+)
+
+# ==================================================================
+# 3. Résolution du modèle L2
+# ==================================================================
+β = X \ T
+T_hat = X * β 
+
+# ==================================================================
+# 4. Affichage des résultats
+# ==================================================================
+@printf("\nRégression L2 - Résultats des coefficients :\n")
+@printf("--------------------------------------------\n")
+@printf("x0 = %.3f   x1 = %.6f (%.2f °F/siècle)\n", β[1], β[2], β[2]*365.25*100)
+@printf("x2 = %.3f   x3 = %.3f\n", β[3], β[4])
+@printf("x4 = %.3f   x5 = %.3f\n", β[5], β[6])
+
+# ==================================================================
+# 5. Graphe comparatif entre les données et le modèle
+# ==================================================================
+#=
+plot(d, T, label="Températures réelles", color=:blue, lw=1, alpha=0.5)
+plot!(d, T_hat, label="Modèle L2 (moindres carrés)", color=:red, lw=2)
+xlabel!("Jour depuis 01/01/1955")
+ylabel!("Température moyenne (°F)")
+title!("Comparaison : Données réelles vs Modèle L2")
+=#
+```
+
+
+### 2.2.2 Validation des résultats (Moindres Carrés):
+
+### Résultats obtenus
+Le modèle L2 a fourni les estimations suivantes :
+
+- **Température moyenne de base (x0)** : 52.792 °F  
+- **Pente de réchauffement local (x1)** : 3.56 °F/siècle  
+- **Amplitude saisonnière** : Calculée à partir de x2 et x3.  
+- **Amplitude du cycle solaire** : Calculée à partir de x4 et x5.  
+
+### Comparaison avec le modèle L1
+- **Tendance au réchauffement** : Le modèle L2 estime une pente plus élevée (3.56 °F/siècle contre 2.98 °F/siècle pour L1), ce qui indique une sensibilité aux variations à long terme.
+- **Effet saisonnier** : Les coefficients x2 et x3 sont légèrement inférieurs à ceux du modèle L1, mais restent cohérents dans l'ensemble.
+- **Effet solaire** : Les valeurs de x4 et x5 suggèrent une amplitude similaire à celle du modèle L1, mais avec une légère variation.
+
+### Robustesse et limites
+- **Avantages** : Le modèle L2 est efficace pour minimiser l'erreur quadratique moyenne, ce qui en fait un choix standard pour les régressions linéaires.
+- **Limites** : Il est plus sensible aux données estimées (interpolation) que le modèle L1, ce qui pourrait expliquer les différences dans les estimations de la pente de réchauffement.
+
+### Remarque : 
+D'abord il est important de noter que les résultats obtenus pour le modèle de régression L2 sont meilleures à ceux du modèle L2 prédites par Vanderbei. La raison est certainement due au traitement préalable des données aberrantes ou manquantes issues du fichier brut utilisé par ce dernier.
+Comme suggéré, dans la remise du rapport de la phase 1, il serait également utile d'utiliser le solveur RipQP.jl outil d'optimisation quadratique adapté pour résoudre les problèmes de régression L2 (problème quadratique).
+En résumé : 
+Les modèles L1 et L2 fournissent des résultats globalement cohérents, avec des légères différences attribuables à leurs propriétés mathématiques distinctes. Le modèle L1 semble plus robuste, tandis que le modèle L2 offre une estimation plus sensible des tendances à long terme.
+
+
+
+### 2.3 Modèle L_infini (Minmax) - Programmation Linéaire
+
+### 2.3.1 Présentation du modèle:
+
+L'exécution du code du fichier "modele_Linf.jl" produit les résultats ci-dessous (Voir le code dans la branche "phase 2" du dépot Github) :
+
+```{julia}
+#Formulation LP pour la régression minimax
+
+using Pkg
+Pkg.add("CSV") 
+Pkg.add("DataFrames")
+Pkg.add("LinearAlgebra")
+Pkg.add("JuMP")
+Pkg.add("GLPK")
+Pkg.add("Plots")
+using CSV, DataFrames, LinearAlgebra, JuMP, GLPK, Plots
+
+# Chargement des fonctions depuis les fichiers
+include("modele_L1.jl")  
+include("modele_L2.jl")  
+
+# ===============================================================
+# 1. Chargement des données
+# ===============================================================
+
+# Adapter le chemin ci_dessous au chemin local de destination du dossier
+df = CSV.read("C:/Users/fogue/Downloads/VANDERBEI-phase2/VANDERBEI-phase2/temperatures_clean.csv", DataFrame)
+d = df.day
+T = df.avg_temp
+n = length(d)
+
+# ===============================================================
+# 2. Construction des prédicteurs
+# ===============================================================
+X = hcat(
+    ones(n),
+    d,
+    cos.(2π .* d ./ 365.25),
+    sin.(2π .* d ./ 365.25),
+    cos.(2π .* d ./ (10.7*365.25)),
+    sin.(2π .* d ./ (10.7*365.25))
+)
+
+# ===============================================================
+# 3. Résolution du modèle L_inf
+# ===============================================================
+β_L1 = predictions_L1(d, T)
+β_L2 = predictions_L2(d, T)
+T_L1 = X * β_L1
+T_L2 = X * β_L2
+
+# Modèle L_inf - 
+println("Résolution du modèle L_inf")
+model_Linf = Model(GLPK.Optimizer)
+
+# Déclaration des variables
+@variable(model_Linf, x[1:6]) 
+@variable(model_Linf, t >= 0)
+
+# Définition de l'objectif
+@objective(model_Linf, Min, t)
+
+# Contraintes
+for i in 1:n
+    pred = sum(X[i,j] * x[j] for j in 1:6)
+    @constraint(model_Linf, pred - T[i] <= t)
+    @constraint(model_Linf, T[i] - pred <= t)
+end
+
+optimize!(model_Linf)
+
+
+# =============================================================
+# 4. Affichage des résultats L_inf
+# =============================================================
+
+if termination_status(model_Linf) == MOI.OPTIMAL
+    β_Linf = value.(x) 
+    
+    @printf("\nRésultats de la régression L_inf (minimax)\n")
+    @printf("------------------------------------------\n")
+    @printf("x0 (température moyenne de base)    = %.3f °F\n", β_Linf[1])
+    @printf("x1 (pente de réchauffement local)   = %.6f °F/jour → %.2f °F/siècle\n",
+            β_Linf[2], β_Linf[2]*365.25*100)
+    @printf("x2, x3 (effet saisonnier)           = %.3f, %.3f\n", β_Linf[3], β_Linf[4])
+    @printf("x4, x5 (effet cycle solaire)        = %.3f, %.3f\n", β_Linf[5], β_Linf[6])
+    
+    amplitude_saison = sqrt(β_Linf[3]^2 + β_Linf[4]^2)
+    amplitude_solaire = sqrt(β_Linf[5]^2 + β_Linf[6]^2)
+    erreur_max = value(t) 
+    
+    @printf("\nAmplitude saisonnière               = %.3f °F\n", amplitude_saison)
+    @printf("Amplitude du cycle solaire          = %.3f °F\n", amplitude_solaire)
+    @printf("Erreur maximale minimisée           = %.3f °F\n", erreur_max)
+    
+else
+    @printf("\nÉchec de la résolution du modèle L_inf!\n")
+end
+
+# Vérification que la solution existe
+if termination_status(model_Linf) == MOI.OPTIMAL
+    β_Linf = value.(x)
+    T_Linf = X * β_Linf
+    
+    println("Solution L_inf trouvée avec succès!")
+   
+    #=
+    # Visualisation
+    plot(d, T, label="Données réelles", alpha=0.5)
+    plot!(d, T_L2, label="L2 (moindres carrés)", lw=2)
+    plot!(d, T_L1, label="L1 (LAD)", lw=2)
+    plot!(d, T_Linf, label="L_inf (erreur max)", lw=2)
+    xlabel!("Jours")
+    ylabel!("Température (°F)")
+    title!("Comparaison des modèles")
+    =#
+
+else
+    println("Échec de la résolution du modèle L_inf!")
+    println("Statut de terminaison: ", termination_status(model_Linf))
+end
+
+```
+
+### 2.3.2 Validation des résultats du modèle L∞ (Minimax):
+
+### Résultats:
+
+- **Température moyenne** : 58.729 °F (écart plus important)  
+- **Pente de réchauffement** : 4.99 °F/siècle (+67% vs L1)  
+- **Amplitude saisonnière** : 28.147 °F  
+- **Effet solaire** : 2.347 °F (sur-estimation notable)  
+- **Erreur maximale** : 29.710 °F  
+
+### Comparaison globale des trois modèles
+| Métrique          |      L1      |       L2       |        L∞         |
+|-------------------|--------------|----------------|-------------------|
+| Réchauffement     | 2.98 °F/s    | 3.56 °F/s      | 4.99 °F/s         |
+| Effet solaire     | Sous-estimé  | Proche référence | Sur-estimé        |
+| Résistance bruit  | Très bonne   | Moyenne         | Faible            |
+
+### Interprétation
+Le modèle L∞ minimise l'erreur absolue maximale, conduisant à :
+
+- Des estimations amplifiées pour compenser les pires scénarios
+- Une forte sensibilité aux extrêmes qui pourrait expliquer les valeurs élevées.
+  
+On en conclut que ce modèle est le moins adapté pour une analyse climatique fine, mais elle est utile comme borne supérieure de variation (prédiction des pires scénarios).
+
+**Conclusion** :  
+
+- Pour l'étude climatique, le L1 offre le meilleur compromis robustesse/précision des résultats
+- Le L∞ pourrait servir à identifier les pires scénarios. 
+
+
+# Remarque importante :
+Des graphiques de comparaison ont été générés pour les trois modèles pour aider à la visualisation et à l'interprétations des résultats de chaque modèle. 
+Cependant ils n'ont pas pu etre insérés dans ce rapport. Mais ils peuvent etre générés en roulant les codes des modèles (surtout celui en norme L_inf car les 3 modèles y sont tous comparés). 
+
+# B. - Comparaison des performances : 
+
+## Évaluation comparative des performances de chaque approche (L1, L2, Linf - avantages et limites) : 
+
+### Analyse des performances :
+
+Les trois approches présentent des caractéristiques complémentaires. Le modèle L1 se distingue par sa robustesse aux données approchées ou meme aberrantes. Toutefois, cette robustesse s'accompagne d'une sous-sensibilité aux variations subtiles, comme en témoigne la sous-estimation de l'effet solaire de 22,7% par rapport aux références.
+
+À l'opposé, le modèle L2 montre une plus grande sensibilité aux perturbations, avec une dégradation marquée des estimations en présence de données approchées ou aberrantes. Le critère des moindres carrés, en pénalisant quadratiquement les grands écarts, amplifie aussi l'impact des points aberrants. Cette caractéristique se traduit dans notre cas par une surestimation d'environ 19,5% de la pente de réchauffement par rapport au modèle L1.
+
+### Robustesse face aux extrêmes :
+
+En optimisant spécifiquement le pire cas observé, l'approche L∞  produit systématiquement des estimations majorantes, comme le montre les valeurs extrêmes obtenues pour la température de base (58,729°F) et l'amplitude saisonnière (28,147°F). Cette propriété en fait un bon outil pour l'analyse de risque climatique, mais inadapté à l'estimation ponctuelle des paramètres.
+
+### Implications pour la modélisation:
+
+Les divergences entre modèles éclairent différentes facettes des phénomènes étudiés. La stabilité du L1 en fait le candidat privilégié pour l'identification des tendances à long terme, tandis que le L2, appliqué à des données préalablement nettoyées, permet une analyse plus fine des composantes saisonnières. L'approche L∞, quant à elle, fournit des bornes utiles.
+
+### Recommandations méthodologiques
+
+Les développements futurs pourraient explorer des fonctions objectif hybrides (L1-L2) , combinant ainsi les avantages des différentes normes tout en palliant leurs faiblesses. La complémentarité de ces approches offre en tout état de cause une richesse analytique.
+
+
+## Utilisation de techniques de bootstrap pour estimer les intervalles de confiance et affiner la précision des prédictions:
+
+Les résultats obetenus pour les 3 modèles (Valeurs de x0, x1, x2, x3, x4 et x5) sont pour la plupart compris dans les intervalles de Vanderbei de longueur  $2\sigma$ obtenues par de multiples essais sur les données de températures de la station de McGuire AFB. Pour reproduire des intervalles de confiance à l'image de ceux de Vanderbei, l'on pourrait utiliser des techniques de bootstrap afin d'affiner les résultats et les comparer notamment pour le cycle solaire. Cependant, cela necessite beaucoup de temps dont nous n'avons pas suffisamment dans le cadre de ce projet.
+Cet objectif pourrait etre ajouté en extension au présent projet traité.
+
+
+
+# C. - Extension des données et traitement des imperfections :
+
+## Automatisation de l'extraction du pipeline de données provenant de différentes stations météorologiques (via l'API NOAA).
+
+L'un des objectif de ce projet est d'automatiser l'extraction de données massives provenant des statioons météorologiques sur l'API NOAA afin de les étudier. Leur études serait par exemple utile pour l'estimation d'intervalles de confiance des paramètres pertinents (températures,...) et la prédiction de l'évolution de ces paramètres.
+Nous avons proposé une implémentations du script permettant de réaliser à la fois l'extraction et le téléchargement des données massives. Cependant, ce code ne fonctionne pas comme souhaité bien que la résolution des problémes soit sur une bonne lancée. En effet à ce jour nous n'arrivons pas à accéder et extraire directement aux données présentes sur le site, mais nous navons accès à toutes les stations météorologiques présentes sur l'API NOAA via une génération de fichier .csv.
+
+Le fichier contenant le script qui devrait permettre l'automatisation de l'extraction et celui donnant accès à toutes les stations météorologiques de l'API NOAA sont eux aussi détaillées dans la branche "phase 2" du dépot Github alloué au projet et accéssible par le lien ci-dessous. il ssont respectivement nommés :
+
+- "automatisation_données_noaa_stations_v2.jl"
+- "noaa_stations.csv"
+
+
+## Méthodologie de gestion des données aberrantes et/ou manquantes.
+
+### Architecture du Système
+
+Voici une structure résumée de l'architechture de traitement des données manquantes et abérrantes. Plus de précisions et de détails sont apportés dans le script du fichier nommé "traitement_données_mcguire_vanderbei.jl" se trouvant sur le dépot github relatif à la phase 2 du projet (branche "phase 2").
+
+
+```{mermaid}
+graph TD
+    A[API NOAA] -->|McGuireAFB| B[traitement_données_mcguire_vanderbei.jl]
+    B -->|Données nettoyées| C[modele_L1.jl]
+    B -->|Données nettoyées| D[modele_L2.jl]
+    B -->|Données nettoyées| E[modele_Linf.jl]
+    C -->|Prédictions| F[(Résultats)]
+    D -->|Prédictions| F
+    E -->|Prédictions| F
+    
+    style A fill:#f9f,stroke:#333
+    style B fill:#bbf,stroke:#333
+    style C,D,E fill:#9f9,stroke:#333
+    style F fill:#ff9,stroke:#333
+```
+
+
+Les méthodes principalement utilisées pour traiter les données manquantes et abérrantes du fichier extrait "McGuireAFB.dat" de Vanderbei sont des **Méthodes d'interpolation**.
+
+À l'issue du traitement, un fichier .csv de température nommé "temperatures_clean" est généré pret à etre utilisé sur les différents modèles. Il se peut qu'il faille apporter des modifications aux titres des colonnes du fichier .csv avant utilisation pour compatibilité. 
+Le document de Vanderbei met aussi à disposition un fichier de dates nommé "Dates.dat". Une version altenative de draitement des données de ce fichier est également présent dans le fichier source "traitement_données_mcguire_vanderbei.jl".
+
+
+# D. - Proposition d'amélioration : intégration de l'humidité :
+
+## Introduction du facteur humidité pour calculer l'indice humidex:
+
+Le modèle LAD proposé par Vanderbei ne tient pas compte des données d'humidité bien que le point de rosée constitue une mesure viable de l'humidité atmosphérique. Son document fournie cependant la formulation permettant de l'inclure à nos différents modèles. Il est décrit comme suit selon la formule canadienne :
+
+### Calcul de l'indice humidex
+La formule canadienne du humidex (*H*) combine température (*T*) et point de rosée (*D*) :
+
+$H = T + 6.11 \times e^{5417.7530 \left(\frac{1}{273.16} - \frac{1}{D}\right)} - 10$ 
+
+
+Il ne reste plus qu'à implémenter ce facteur humidex dans nos modèles. Mais le problème qui se pose est l'accès aux données de point de rosée.
+Nous avons quand meme tenté d'implémenter les 3 nouveaux modèles tenant compte de l'humidité sans pour autant les essayer sur un jeu de données réalistes comme ceux qui pourrait etre fournis par l'API NOAA.
+Pour compléter cette amélioration, il faudrait acquérir donc des données d'humidité et essayer nos modèle dessus.
+
+Les modèles obetenus sont présentés dans la section suivante ci-dessous.  
+
+
+## Adaptation du facteur humidex aux trois modèles:
+
+L'inclusion de l'humidité aux 3 modèles permet d'affiner les résultats des paramètres climatiques pour une station météorologique donnée. 
+Il a donc été proposé 3 nouveaux modèles (pour chacune des normes L1, L2 et Linf) présentés de manières très détaillée dans des fichiers présents dans le dépot Github de la phase 2 et nommées comme suit :
+
+- Facteur_humidex_modèle_L1.jl (norme L1);
+- Facteur_humidex_modèle_L2.jl  (norme L2);
+- Facteur_humidex_modèle_Linf.jl  (norme Linf).
+
+Il est par contre utile de présenter la fonction commune à tous les trois fichiers et ayant permis d'implémenter les nouveaux modèles :
+
+```{julia}
+function calculate_humidex(T_F, dewpt_F)
+    T_K = (T_F - 32) * 5/9 + 273.15
+    D_K = (dewpt_F - 32) * 5/9 + 273.15
+    H = T_F + 6.11 * exp(5417.7530 * (1/273.15 - 1/D_K)) - 10
+    return H
+end
+```
+
+
+
+# Conclusion / Attentes pour la remise 3:
+
+Le prochaines étapes pour la troisième remise de ce projet se propose de :
+
+- Obtenir des données sur l'humidité pour valider les modèles incluant le facteur humidex;
+- Compléter et tester l'automatisation de l'extraction des données des stations météorologiques de l'API NOAA;
+- Apporter des modifications pertinentes pour améliorer l'éfficacité des modèles (Étape de pauffinage );
+- Utiliser la librairie suggérée RipQP.jl à des fins de comparaisons de performances entre solveurs en régression L2 (si le temps le permet)
+
+
+### Lien vers le dépôt GitHub : https://github.com/Mimimmi15/VANDERBEI
